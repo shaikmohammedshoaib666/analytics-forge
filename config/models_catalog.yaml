@@ -99,6 +99,56 @@ models:
     library: sklearn
     task: anomaly
     estimator: sklearn.ensemble.IsolationForest
+  - id: XGBRegressor
+    group: boosting_i40
+    library: xgboost
+    task: regression
+    estimator: xgboost.XGBRegressor
+    default_params:
+      n_estimators: 80
+      max_depth: 4
+      learning_rate: 0.1
+      verbosity: 0
+  - id: XGBClassifier
+    group: boosting_i40
+    library: xgboost
+    task: classification
+    estimator: xgboost.XGBClassifier
+    default_params:
+      n_estimators: 80
+      max_depth: 4
+      learning_rate: 0.1
+      verbosity: 0
+  - id: LGBMRegressor
+    group: boosting_i40
+    library: lightgbm
+    task: regression
+    estimator: lightgbm.LGBMRegressor
+    default_params:
+      n_estimators: 80
+      max_depth: 4
+      learning_rate: 0.1
+      verbosity: -1
+  - id: LGBMClassifier
+    group: boosting_i40
+    library: lightgbm
+    task: classification
+    estimator: lightgbm.LGBMClassifier
+    default_params:
+      n_estimators: 80
+      max_depth: 4
+      learning_rate: 0.1
+      verbosity: -1
+  - id: ExtraTreesRegressor
+    group: sklearn_supervised
+    library: sklearn
+    task: regression
+    estimator: sklearn.ensemble.ExtraTreesRegressor
+  - id: ExtraTreesClassifier
+    group: sklearn_supervised
+    library: sklearn
+    task: classification
+    estimator: sklearn.ensemble.ExtraTreesClassifier
   - id: Prophet
     group: forecasting
     library: prophet
@@ -117,12 +167,28 @@ models:
     estimator: gurobipy
     optional: true
     requires_license: true
+    note: Needs commercial Gurobi license — use stronger host / local license.
   - id: ORTools
     group: optimization_i40
     library: ortools
     task: optimization
     estimator: ortools
     optional: true
+    note: Install ortools on a stronger host for layout/scheduling optimization.
+  - id: PyTorchStub
+    group: deep_learning_enterprise
+    library: torch
+    task: deep_learning
+    estimator: stub
+    optional: true
+    note: Use AWS/GCP/Azure GPU hosts — too heavy for Streamlit Cloud free tier.
+  - id: PySparkStub
+    group: big_data_enterprise
+    library: pyspark
+    task: big_data
+    estimator: stub
+    optional: true
+    note: Needs Spark cluster (Databricks/EMR) — not for Streamlit Community Cloud.
 
 viz_libraries:
   - plotly

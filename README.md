@@ -40,6 +40,20 @@ AI_DEFAULT_PROVIDER=gemini
 4. Add secrets from `.streamlit/secrets.toml.example`
 5. Deploy
 
-## Workflow
+## Hosts & data limits
 
-Upload → Clean → Field → Auto KPIs → Charts → ML Studio → Ask/AI (Gemini/OpenAI/Offline) → Dashboard → Email
+| Host | Good for | Typical upload / data size |
+|------|----------|----------------------------|
+| **Streamlit Community Cloud (free)** | This app: CSV analytics, sklearn/XGBoost/LightGBM/Prophet | Usually **tens of MB CSV** per session (memory ~1GB class). Avoid multi-GB files |
+| **Streamlit Cloud / paid tier** | Same app, more RAM | Larger CSVs (hundreds of MB) depending on plan |
+| **AWS / GCP / Azure VM or GPU** | PyTorch deep learning | GBs + GPU training |
+| **Databricks / EMR / Spark cluster** | PySpark big data | GBs–TBs across cluster |
+| **Local strong PC** | Gurobi (with license), heavier models | Depends on your RAM |
+
+### Why PyTorch / PySpark are listed but not installed here
+They are **too heavy** for Streamlit free cloud and need special infrastructure. They appear in ML Studio as **enterprise stubs** with guidance.
+
+### I4.0 models now runnable in this app
+RandomForest, ExtraTrees, **IsolationForest**, **XGBoost**, **LightGBM**, GradientBoosting, KMeans, PCA, **Prophet** (if build succeeds), statsmodels OLS.
+
+Gurobi / OR-Tools / PyTorch / PySpark = stronger host + license/cluster.

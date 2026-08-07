@@ -15,6 +15,13 @@ _ALIASES = {
     "linear_regression": "LinearRegression",
     "logistic_regression": "LogisticRegression",
     "gradient_boosting_regressor": "GradientBoostingRegressor",
+    "isolation_forest": "IsolationForest",
+    "xgb_regressor": "XGBRegressor",
+    "xgb_classifier": "XGBClassifier",
+    "xgboost": "XGBRegressor",
+    "lightgbm": "LGBMRegressor",
+    "lgbm_regressor": "LGBMRegressor",
+    "prophet": "Prophet",
     "kmeans": "KMeans",
     "k_means": "KMeans",
 }

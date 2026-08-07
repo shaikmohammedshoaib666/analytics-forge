@@ -93,33 +93,37 @@ def _build_estimator(model_id: str, meta: dict):
     dotted = meta.get("class") or meta.get("estimator") or ""
     library = (meta.get("library") or "").lower()
     if (
-        meta.get("soft_fail")
-        or meta.get("requires_license")
+        meta.get("requires_license")
         or dotted in {"stub", "gurobipy", "ortools"}
-        or model_id in {"gurobi_stub", "OptimizationGurobi", "ORTools"}
-        or library in {"gurobipy", "ortools"}
+        or model_id in {"gurobi_stub", "OptimizationGurobi", "ORTools", "PyTorchStub", "PySparkStub"}
+        or library in {"gurobipy", "ortools", "torch", "pyspark"}
+        or meta.get("task") in {"deep_learning", "big_data", "optimization"}
     ):
         raise RuntimeError(
-            f"{model_id} is optional / not executable in Phase 1 (soft-fail)."
+            f"{model_id} needs a stronger host / license. "
+            "Available now for I4.0 on this app: RandomForest, IsolationForest, XGBoost, LightGBM, Prophet."
         )
-    if library == "prophet" or model_id.lower() == "prophet" or "prophet" in dotted.lower():
-        try:
-            from prophet import Prophet  # noqa: F401
-        except ImportError as exc:
-            raise RuntimeError(
-                "Prophet is not installed. pip install prophet (optional)."
-            ) from exc
-        raise RuntimeError(
-            "Prophet forecasting requires a date + y frame; use sklearn models in Phase 1 ML Studio."
-        )
+    # Prophet handled in dedicated runner
+    if library == "prophet" or model_id.lower() == "prophet":
+        raise RuntimeError("PROPHET_ROUTE")
     if not dotted or "." not in dotted:
         raise RuntimeError(f"Model {model_id} has no importable estimator class.")
-    # Default params for common models that need them
     params = dict(meta.get("default_params") or {})
     if model_id == "KMeans" and "n_clusters" not in params:
         params["n_clusters"] = 3
     if model_id == "LogisticRegression" and "max_iter" not in params:
         params["max_iter"] = 1000
+    if model_id == "IsolationForest":
+        params.setdefault("contamination", 0.05)
+        params.setdefault("random_state", 42)
+    if model_id.startswith("ExtraTrees"):
+        params.setdefault("n_estimators", 80)
+        params.setdefault("random_state", 42)
+    # soft optional imports
+    if library == "xgboost":
+        import xgboost  # noqa: F401
+    if library == "lightgbm":
+        import lightgbm  # noqa: F401
     cls = _resolve_class(dotted)
     try:
         return cls(**params)
@@ -147,11 +151,26 @@ def run_model(
 
     if task == "clustering":
         return _run_clustering(df, model_id, meta, features)
+    if task == "anomaly" or model_id == "IsolationForest":
+        return _run_anomaly(df, model_id, meta, features)
+    if task == "forecast" or model_id == "Prophet":
+        return _run_prophet(df)
+    if task in {"optimization", "deep_learning", "big_data"}:
+        return {
+            "ok": False,
+            "model_id": model_id,
+            "task": task,
+            "error": meta.get("note")
+            or f"{model_id} requires stronger host/license (not Streamlit free tier).",
+        }
 
     try:
         estimator = _build_estimator(model_id, meta)
     except Exception as exc:
-        return {"ok": False, "error": str(exc), "model_id": model_id, "task": task}
+        msg = str(exc)
+        if msg == "PROPHET_ROUTE":
+            return _run_prophet(df)
+        return {"ok": False, "error": msg, "model_id": model_id, "task": task}
 
     tgt = target or pick_target(df, task)
     if not tgt or tgt not in df.columns:
@@ -310,4 +329,117 @@ def _run_clustering(
         "predictions_preview": preview.reset_index(drop=True),
         "n_train": int(len(X)),
         "n_test": 0,
+    }
+
+
+def _run_anomaly(
+    df: pd.DataFrame,
+    model_id: str,
+    meta: dict,
+    features: Optional[list[str]] = None,
+) -> dict[str, Any]:
+    try:
+        estimator = _build_estimator(model_id, meta)
+    except Exception as exc:
+        return {"ok": False, "error": str(exc), "model_id": model_id, "task": "anomaly"}
+
+    nums = df.select_dtypes(include=[np.number]).columns.tolist()
+    feats = features or [c for c in nums if not str(c).endswith("_outlier_flag")][:10]
+    feats = [f for f in feats if f in df.columns]
+    if not feats:
+        return {"ok": False, "error": "Need numeric columns for IsolationForest / anomaly detection."}
+
+    X = df[feats].apply(pd.to_numeric, errors="coerce").dropna()
+    if len(X) < 10:
+        return {"ok": False, "error": "Need at least 10 clean numeric rows for anomaly detection."}
+
+    labels = estimator.fit_predict(X)
+    scores = None
+    if hasattr(estimator, "decision_function"):
+        scores = estimator.decision_function(X)
+    anomaly_count = int((labels == -1).sum())
+    preview = X.head(25).copy()
+    preview["anomaly_label"] = labels[: len(preview)]
+    if scores is not None:
+        preview["anomaly_score"] = scores[: len(preview)]
+
+    return {
+        "ok": True,
+        "model_id": model_id,
+        "task": "anomaly",
+        "target": None,
+        "features": feats,
+        "metrics": {
+            "anomaly_count": anomaly_count,
+            "anomaly_rate_pct": round(float(anomaly_count / len(X) * 100), 3),
+            "n_rows": int(len(X)),
+        },
+        "predictions_preview": preview.reset_index(drop=True),
+        "n_train": int(len(X)),
+        "n_test": 0,
+    }
+
+
+def _run_prophet(df: pd.DataFrame) -> dict[str, Any]:
+    try:
+        from prophet import Prophet
+    except Exception as exc:
+        return {
+            "ok": False,
+            "model_id": "Prophet",
+            "task": "forecast",
+            "error": f"Prophet not installed ({exc}). On Streamlit Cloud it may need a packages.txt with build tools; locally: pip install prophet.",
+        }
+
+    date_cols = [
+        c
+        for c in df.columns
+        if np.issubdtype(df[c].dtype, np.datetime64) or any(h in str(c).lower() for h in ("date", "time", "timestamp"))
+    ]
+    num_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+    if not date_cols or not num_cols:
+        return {
+            "ok": False,
+            "model_id": "Prophet",
+            "task": "forecast",
+            "error": "Prophet needs a date/time column and a numeric metric column.",
+        }
+
+    # prefer revenue/rul-like metric
+    ycol = next(
+        (c for c in num_cols if any(k in str(c).lower() for k in ("revenue", "sales", "rul", "units", "y"))),
+        num_cols[0],
+    )
+    tmp = pd.DataFrame(
+        {
+            "ds": pd.to_datetime(df[date_cols[0]], errors="coerce"),
+            "y": pd.to_numeric(df[ycol], errors="coerce"),
+        }
+    ).dropna()
+    if len(tmp) < 10:
+        return {"ok": False, "model_id": "Prophet", "task": "forecast", "error": "Need >= 10 dated rows for Prophet."}
+
+    m = Prophet()
+    m.fit(tmp)
+    future = m.make_future_dataframe(periods=min(14, max(7, len(tmp) // 5)))
+    fc = m.predict(future)
+    merged = tmp.merge(fc[["ds", "yhat"]], on="ds", how="inner").dropna()
+    metrics = {
+        "r2": round(float(r2_score(merged["y"], merged["yhat"])), 4),
+        "rmse": round(float(mean_squared_error(merged["y"], merged["yhat"]) ** 0.5), 4),
+        "mae": round(float(mean_absolute_error(merged["y"], merged["yhat"])), 4),
+        "target": ycol,
+        "horizon": int(len(future) - len(tmp)),
+    }
+    preview = fc[["ds", "yhat", "yhat_lower", "yhat_upper"]].tail(20).reset_index(drop=True)
+    return {
+        "ok": True,
+        "model_id": "Prophet",
+        "task": "forecast",
+        "target": ycol,
+        "features": [date_cols[0], ycol],
+        "metrics": metrics,
+        "predictions_preview": preview,
+        "n_train": int(len(tmp)),
+        "n_test": int(metrics["horizon"]),
     }
