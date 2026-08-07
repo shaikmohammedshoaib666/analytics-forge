@@ -1,0 +1,130 @@
+models:
+  - id: LinearRegression
+    group: sklearn_supervised
+    library: sklearn
+    task: regression
+    estimator: sklearn.linear_model.LinearRegression
+  - id: Ridge
+    group: sklearn_supervised
+    library: sklearn
+    task: regression
+    estimator: sklearn.linear_model.Ridge
+  - id: Lasso
+    group: sklearn_supervised
+    library: sklearn
+    task: regression
+    estimator: sklearn.linear_model.Lasso
+  - id: ElasticNet
+    group: sklearn_supervised
+    library: sklearn
+    task: regression
+    estimator: sklearn.linear_model.ElasticNet
+  - id: LogisticRegression
+    group: sklearn_supervised
+    library: sklearn
+    task: classification
+    estimator: sklearn.linear_model.LogisticRegression
+  - id: SVC
+    group: sklearn_supervised
+    library: sklearn
+    task: classification
+    estimator: sklearn.svm.SVC
+  - id: SVR
+    group: sklearn_supervised
+    library: sklearn
+    task: regression
+    estimator: sklearn.svm.SVR
+  - id: DecisionTreeRegressor
+    group: sklearn_supervised
+    library: sklearn
+    task: regression
+    estimator: sklearn.tree.DecisionTreeRegressor
+  - id: DecisionTreeClassifier
+    group: sklearn_supervised
+    library: sklearn
+    task: classification
+    estimator: sklearn.tree.DecisionTreeClassifier
+  - id: RandomForestRegressor
+    group: sklearn_supervised
+    library: sklearn
+    task: regression
+    estimator: sklearn.ensemble.RandomForestRegressor
+  - id: RandomForestClassifier
+    group: sklearn_supervised
+    library: sklearn
+    task: classification
+    estimator: sklearn.ensemble.RandomForestClassifier
+  - id: GradientBoostingRegressor
+    group: sklearn_supervised
+    library: sklearn
+    task: regression
+    estimator: sklearn.ensemble.GradientBoostingRegressor
+  - id: GradientBoostingClassifier
+    group: sklearn_supervised
+    library: sklearn
+    task: classification
+    estimator: sklearn.ensemble.GradientBoostingClassifier
+  - id: KNeighborsRegressor
+    group: sklearn_supervised
+    library: sklearn
+    task: regression
+    estimator: sklearn.neighbors.KNeighborsRegressor
+  - id: KNeighborsClassifier
+    group: sklearn_supervised
+    library: sklearn
+    task: classification
+    estimator: sklearn.neighbors.KNeighborsClassifier
+  - id: GaussianNB
+    group: sklearn_supervised
+    library: sklearn
+    task: classification
+    estimator: sklearn.naive_bayes.GaussianNB
+  - id: KMeans
+    group: sklearn_unsupervised
+    library: sklearn
+    task: clustering
+    estimator: sklearn.cluster.KMeans
+  - id: DBSCAN
+    group: sklearn_unsupervised
+    library: sklearn
+    task: clustering
+    estimator: sklearn.cluster.DBSCAN
+  - id: PCA
+    group: sklearn_unsupervised
+    library: sklearn
+    task: dimensionality
+    estimator: sklearn.decomposition.PCA
+  - id: IsolationForest
+    group: sklearn_unsupervised
+    library: sklearn
+    task: anomaly
+    estimator: sklearn.ensemble.IsolationForest
+  - id: Prophet
+    group: forecasting
+    library: prophet
+    task: forecast
+    estimator: prophet.Prophet
+    optional: true
+  - id: StatsmodelsOLS
+    group: forecasting
+    library: statsmodels
+    task: regression
+    estimator: statsmodels.api.OLS
+  - id: OptimizationGurobi
+    group: optimization_i40
+    library: gurobipy
+    task: optimization
+    estimator: gurobipy
+    optional: true
+    requires_license: true
+  - id: ORTools
+    group: optimization_i40
+    library: ortools
+    task: optimization
+    estimator: ortools
+    optional: true
+
+viz_libraries:
+  - plotly
+  - matplotlib
+  - seaborn
