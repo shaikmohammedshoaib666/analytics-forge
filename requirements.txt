@@ -1,5 +1,5 @@
-# Core — installs from wheels on Streamlit Cloud / typical college PCs
-# (no gurobi / torch / pyspark)
+# Core — wheel-friendly pins for Python 3.12 (Streamlit Community Cloud)
+# Set Python version to 3.12 in Cloud → Advanced settings (runtime.txt is advisory only).
 streamlit>=1.28.0,<1.46.0
 pandas>=2.0.0,<3.0.0
 numpy>=1.24.0,<2.3.0
@@ -15,12 +15,10 @@ pyarrow>=14.0.0
 duckdb>=0.9.0
 PyYAML>=6.0
 
-# Separate libraries for catalog models — shipped in MAIN so
-# `pip install -r requirements.txt` (college / Streamlit Cloud) makes them run.
+# Separate libraries for catalog models — kept in MAIN when they have 3.12 wheels.
 # Soft-fail in-app remains only as a safety net if import still fails after install.
+# Prophet is NOT here — it often hangs/fails Cloud builds (cmdstan); see requirements-optional.txt.
 statsmodels>=0.14.0,<0.15.0
 xgboost>=2.0.0,<4.0.0
 lightgbm>=4.0.0,<5.0.0
 pulp>=2.8.0,<4.0.0
-# Prophet: usually has wheels; Cloud build can still flake (cmdstan) — soft-fails if so.
-prophet>=1.1.5,<1.4.0

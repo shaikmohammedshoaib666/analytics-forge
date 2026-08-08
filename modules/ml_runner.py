@@ -1,7 +1,7 @@
 """Run sklearn + catalog models with leakage-safe feature/target prep.
 
-XGBoost / LightGBM / statsmodels / PuLP / Prophet ship via main requirements.txt.
-Import soft-fail remains only as a safety net if a package is still missing.
+XGBoost / LightGBM / statsmodels / PuLP ship via main requirements.txt.
+Prophet is optional (requirements-optional.txt) — soft-fails if missing.
 """
 from __future__ import annotations
 
@@ -811,10 +811,10 @@ def _run_prophet(df: pd.DataFrame, target: Optional[str] = None) -> dict[str, An
             "model_id": "Prophet",
             "task": "forecast",
             "error": (
-                f"Prophet is listed in requirements.txt but failed to import ({exc}). "
-                "Re-run: pip install -r requirements.txt. "
-                "On Streamlit Cloud, Prophet can occasionally fail to build (cmdstan); "
-                "redeploy or use holdout regression models if install fails."
+                f"Prophet is not installed ({exc}). "
+                "Local: pip install -r requirements-optional.txt. "
+                "On Streamlit Cloud, Prophet is omitted from requirements.txt to avoid "
+                "long/hanging builds (cmdstan); use holdout regression models instead."
             ),
         }
 

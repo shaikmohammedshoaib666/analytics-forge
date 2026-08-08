@@ -225,7 +225,7 @@ models:
     task: forecast
     estimator: prophet.Prophet
     optional: true
-    note: Needs a datetime/date column + numeric target. Packaged in requirements.txt; soft-fails only if import still fails (Cloud cmdstan flake possible).
+    note: Needs a datetime/date column + numeric target. Optional (requirements-optional.txt); soft-fails if missing so Cloud installs stay reliable.
   - id: StatsmodelsOLS
     group: forecasting
     library: statsmodels
