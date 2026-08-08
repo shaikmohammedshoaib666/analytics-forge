@@ -79,7 +79,7 @@ domains:
       - dock
       - utilization
     kpi_hints: [throughput, utilization, pick_rate, row_count]
-    recommended_models: [KMeans, RandomForestRegressor, OptimizationGurobi]
+    recommended_models: [KMeans, RandomForestRegressor, PuLP]
     users: [Warehouse manager, I4.0 engineer, Ops analyst]
     what_we_can_do:
       - Measure utilization and bottlenecks

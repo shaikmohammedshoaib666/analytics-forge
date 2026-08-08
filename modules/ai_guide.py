@@ -262,15 +262,17 @@ def rule_based_answer(
 
 
 def openai_configured() -> bool:
-    from config.settings import OPENAI_API_KEY as key
+    from config.settings import get_openai_api_key, refresh_settings
 
-    return bool(key)
+    refresh_settings()
+    return bool(get_openai_api_key())
 
 
 def gemini_configured() -> bool:
-    from config.settings import GEMINI_API_KEY as key
+    from config.settings import get_gemini_api_key, refresh_settings
 
-    return bool(key)
+    refresh_settings()
+    return bool(get_gemini_api_key())
 
 
 def provider_status() -> dict[str, bool]:
@@ -313,9 +315,13 @@ SYSTEM_PROMPT = (
 def _call_openai(question: str, context: str, history: Optional[list]) -> str:
     from openai import OpenAI
 
-    from config.settings import OPENAI_API_KEY, OPENAI_MODEL
+    from config.settings import get_openai_api_key, get_openai_model, refresh_settings
 
-    client = OpenAI(api_key=OPENAI_API_KEY)
+    refresh_settings()
+    api_key = get_openai_api_key()
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY is missing")
+    client = OpenAI(api_key=api_key)
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": f"Context:\n{context}"},
@@ -324,7 +330,7 @@ def _call_openai(question: str, context: str, history: Optional[list]) -> str:
         messages.append({"role": h.get("role", "user"), "content": h.get("content", "")})
     messages.append({"role": "user", "content": question})
     resp = client.chat.completions.create(
-        model=OPENAI_MODEL or "gpt-4o-mini",
+        model=get_openai_model() or "gpt-4o-mini",
         messages=messages,
         temperature=0.2,
         max_tokens=700,
@@ -333,7 +339,13 @@ def _call_openai(question: str, context: str, history: Optional[list]) -> str:
 
 
 def _call_gemini(question: str, context: str, history: Optional[list]) -> str:
-    from config.settings import GEMINI_API_KEY, GEMINI_MODEL
+    from config.settings import get_gemini_api_key, get_gemini_model, refresh_settings
+
+    refresh_settings()
+    api_key = get_gemini_api_key()
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY is missing")
+    model_name = get_gemini_model() or "gemini-2.0-flash"
 
     try:
         from google import genai
@@ -341,8 +353,8 @@ def _call_gemini(question: str, context: str, history: Optional[list]) -> str:
         # older package name fallback
         import google.generativeai as genai_old  # type: ignore
 
-        genai_old.configure(api_key=GEMINI_API_KEY)
-        model = genai_old.GenerativeModel(GEMINI_MODEL or "gemini-2.0-flash")
+        genai_old.configure(api_key=api_key)
+        model = genai_old.GenerativeModel(model_name)
         hist = ""
         for h in (history or [])[-6:]:
             hist += f"{h.get('role', 'user')}: {h.get('content', '')}\n"
@@ -350,12 +362,12 @@ def _call_gemini(question: str, context: str, history: Optional[list]) -> str:
         resp = model.generate_content(prompt)
         return getattr(resp, "text", None) or str(resp)
 
-    client = genai.Client(api_key=GEMINI_API_KEY)
+    client = genai.Client(api_key=api_key)
     hist = ""
     for h in (history or [])[-6:]:
         hist += f"{h.get('role', 'user')}: {h.get('content', '')}\n"
     prompt = f"{SYSTEM_PROMPT}\n\nContext:\n{context}\n\nChat:\n{hist}\nuser: {question}"
-    resp = client.models.generate_content(model=GEMINI_MODEL or "gemini-2.0-flash", contents=prompt)
+    resp = client.models.generate_content(model=model_name, contents=prompt)
     return getattr(resp, "text", None) or str(resp)
 
 
@@ -371,8 +383,9 @@ def ask_ai(
     ml_result: Optional[dict] = None,
     provider: str = "auto",
 ) -> dict[str, Any]:
-    from config.settings import AI_DEFAULT_PROVIDER
+    from config.settings import AI_DEFAULT_PROVIDER, get_ai_default_provider, refresh_settings
 
+    refresh_settings()
     rb = rule_based_answer(
         question,
         df=df,
@@ -383,15 +396,16 @@ def ask_ai(
     )
 
     provider = (provider or "auto").lower().strip()
+    default_provider = get_ai_default_provider() or AI_DEFAULT_PROVIDER
     if provider == "auto":
         if gemini_configured():
             provider = "gemini"
         elif openai_configured():
             provider = "openai"
         else:
-            provider = AI_DEFAULT_PROVIDER if (AI_DEFAULT_PROVIDER in {"gemini", "openai"} and (
-                (AI_DEFAULT_PROVIDER == "gemini" and gemini_configured())
-                or (AI_DEFAULT_PROVIDER == "openai" and openai_configured())
+            provider = default_provider if (default_provider in {"gemini", "openai"} and (
+                (default_provider == "gemini" and gemini_configured())
+                or (default_provider == "openai" and openai_configured())
             )) else "offline"
 
     if provider in {"gemini", "openai"}:

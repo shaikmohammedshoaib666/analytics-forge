@@ -12,17 +12,18 @@ from pathlib import Path
 from typing import Any, Optional
 
 from config.settings import (
-    EMAIL_FROM,
-    EMAIL_IMAP_FOLDER,
-    EMAIL_IMAP_HOST,
-    EMAIL_IMAP_PORT,
-    EMAIL_PASSWORD,
-    EMAIL_SMTP_HOST,
-    EMAIL_SMTP_PORT,
-    EMAIL_SMTP_USE_TLS,
-    EMAIL_USER,
     INBOUND_DIR,
     RUNS_DIR,
+    get_email_from,
+    get_email_imap_folder,
+    get_email_imap_host,
+    get_email_imap_port,
+    get_email_password,
+    get_email_smtp_host,
+    get_email_smtp_port,
+    get_email_smtp_use_tls,
+    get_email_user,
+    refresh_settings,
 )
 from core import db
 from core.pack import build_html_pack
@@ -34,26 +35,64 @@ class EmailConfigError(RuntimeError):
     pass
 
 
+def email_send_configured() -> bool:
+    """SMTP send needs user + password + host (aliases SMTP_* also accepted)."""
+    refresh_settings()
+    return bool(get_email_user() and get_email_password() and get_email_smtp_host())
+
+
+def email_imap_configured() -> bool:
+    refresh_settings()
+    return bool(get_email_user() and get_email_password() and get_email_imap_host())
+
+
 def email_configured() -> bool:
-    return bool(EMAIL_USER and EMAIL_PASSWORD and EMAIL_SMTP_HOST and EMAIL_IMAP_HOST)
+    """True when outbound SMTP credentials are present (IMAP defaults for Gmail)."""
+    return email_send_configured()
 
 
 def config_status() -> dict[str, Any]:
+    refresh_settings()
+    user = get_email_user()
+    password = get_email_password()
+    smtp_host = get_email_smtp_host()
+    imap_host = get_email_imap_host()
     return {
         "configured": email_configured(),
-        "user": EMAIL_USER or "(missing)",
-        "from": EMAIL_FROM or EMAIL_USER or "(missing)",
-        "smtp": f"{EMAIL_SMTP_HOST}:{EMAIL_SMTP_PORT}" if EMAIL_SMTP_HOST else "(missing)",
-        "imap": f"{EMAIL_IMAP_HOST}:{EMAIL_IMAP_PORT}" if EMAIL_IMAP_HOST else "(missing)",
-        "folder": EMAIL_IMAP_FOLDER,
+        "send_ready": email_send_configured(),
+        "imap_ready": email_imap_configured(),
+        "user": user or "(missing)",
+        "from": get_email_from() or user or "(missing)",
+        "smtp": f"{smtp_host}:{get_email_smtp_port()}" if smtp_host else "(missing)",
+        "imap": f"{imap_host}:{get_email_imap_port()}" if imap_host else "(missing)",
+        "folder": get_email_imap_folder(),
+        "missing": [
+            name
+            for name, ok in (
+                ("EMAIL_USER (or SMTP_USER)", bool(user)),
+                ("EMAIL_PASSWORD (or SMTP_PASSWORD)", bool(password)),
+                ("EMAIL_SMTP_HOST (or SMTP_HOST)", bool(smtp_host)),
+            )
+            if not ok
+        ],
     }
 
 
-def _require_config() -> None:
-    if not email_configured():
+def _require_config(*, need_imap: bool = False) -> None:
+    if need_imap:
+        if not email_imap_configured():
+            raise EmailConfigError(
+                "Email inbox not configured. Set EMAIL_USER, EMAIL_PASSWORD, and "
+                "EMAIL_IMAP_HOST in `.env` or Streamlit Secrets "
+                "(Gmail: use an App Password — not your normal password)."
+            )
+        return
+    if not email_send_configured():
+        status = config_status()
+        missing = ", ".join(status.get("missing") or ["EMAIL_USER", "EMAIL_PASSWORD"])
         raise EmailConfigError(
-            "Email not configured. Set EMAIL_USER, EMAIL_PASSWORD, EMAIL_SMTP_HOST, "
-            "EMAIL_IMAP_HOST in .env (Gmail: use an App Password)."
+            f"Email not configured. Missing: {missing}. "
+            "Add them to `.env` or Streamlit Secrets (Gmail: App Password)."
         )
 
 
@@ -68,10 +107,17 @@ def send_email(
     Send email via SMTP.
     attachments: list of (filename, content_bytes, mime_main/sub) e.g. ('a.html', b'...', 'text/html')
     """
-    _require_config()
+    _require_config(need_imap=False)
     to_addr = (to_addr or "").strip()
     if not to_addr or "@" not in to_addr:
         raise ValueError("Valid recipient email required")
+
+    user = get_email_user()
+    password = get_email_password()
+    from_addr = get_email_from() or user
+    smtp_host = get_email_smtp_host()
+    smtp_port = get_email_smtp_port()
+    use_tls = get_email_smtp_use_tls()
 
     paths: list[str] = []
     attach_dir = RUNS_DIR / "email_out"
@@ -79,7 +125,7 @@ def send_email(
 
     msg = EmailMessage()
     msg["Subject"] = subject
-    msg["From"] = EMAIL_FROM or EMAIL_USER
+    msg["From"] = from_addr
     msg["To"] = to_addr
     msg.set_content(body)
 
@@ -93,16 +139,16 @@ def send_email(
         paths.append(str(out_path))
 
     context = ssl.create_default_context()
-    if EMAIL_SMTP_USE_TLS:
-        with smtplib.SMTP(EMAIL_SMTP_HOST, EMAIL_SMTP_PORT, timeout=60) as server:
+    if use_tls:
+        with smtplib.SMTP(smtp_host, smtp_port, timeout=60) as server:
             server.ehlo()
             server.starttls(context=context)
             server.ehlo()
-            server.login(EMAIL_USER, EMAIL_PASSWORD)
+            server.login(user, password)
             server.send_message(msg)
     else:
-        with smtplib.SMTP_SSL(EMAIL_SMTP_HOST, EMAIL_SMTP_PORT, context=context, timeout=60) as server:
-            server.login(EMAIL_USER, EMAIL_PASSWORD)
+        with smtplib.SMTP_SSL(smtp_host, smtp_port, context=context, timeout=60) as server:
+            server.login(user, password)
             server.send_message(msg)
 
     eid = db.queue_email(
@@ -111,7 +157,7 @@ def send_email(
         body=body,
         run_id=run_id,
         direction="out",
-        from_addr=EMAIL_FROM or EMAIL_USER,
+        from_addr=from_addr,
         attachment_paths=paths,
     )
     db.update_email_status(eid, "sent")
@@ -232,15 +278,21 @@ def process_inbound_mailbox(limit: int = 10) -> dict[str, Any]:
     Poll IMAP for unread emails with CSV/Excel attachments.
     For each: run full pipeline (+ baseline ML), email HTML report + clean CSV back to sender.
     """
-    _require_config()
+    _require_config(need_imap=True)
     INBOUND_DIR.mkdir(parents=True, exist_ok=True)
     db.init_db()
 
+    user = get_email_user()
+    password = get_email_password()
+    imap_host = get_email_imap_host()
+    imap_port = get_email_imap_port()
+    imap_folder = get_email_imap_folder()
+
     results: list[dict[str, Any]] = []
     context = ssl.create_default_context()
-    with imaplib.IMAP4_SSL(EMAIL_IMAP_HOST, EMAIL_IMAP_PORT, ssl_context=context) as imap:
-        imap.login(EMAIL_USER, EMAIL_PASSWORD)
-        imap.select(EMAIL_IMAP_FOLDER)
+    with imaplib.IMAP4_SSL(imap_host, imap_port, ssl_context=context) as imap:
+        imap.login(user, password)
+        imap.select(imap_folder)
         status, data = imap.search(None, "UNSEEN")
         if status != "OK":
             return {"ok": False, "message": "IMAP search failed", "processed": []}
@@ -265,7 +317,7 @@ def process_inbound_mailbox(limit: int = 10) -> dict[str, Any]:
 
             # log inbound
             in_id = db.queue_email(
-                to_addr=EMAIL_USER,
+                to_addr=user,
                 subject=subject,
                 body=f"Inbound from {sender}; attachments={[f for f, _ in files]}",
                 direction="in",

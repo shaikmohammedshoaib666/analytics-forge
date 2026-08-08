@@ -1,0 +1,11 @@
+# Previously held optional model packages.
+# Those packages are now in main requirements.txt so college / Streamlit Cloud
+# installs get them via: pip install -r requirements.txt
+#
+# Covered by main requirements.txt:
+#   xgboost, lightgbm, statsmodels, pulp, prophet
+#
+# Still NOT included (need special host / license — do not add here):
+#   gurobi, torch, pyspark
+#
+# This file is kept for backwards-compatible docs links only (no extra pins).

@@ -9,71 +9,116 @@ models:
     library: sklearn
     task: regression
     estimator: sklearn.linear_model.Ridge
+    default_params:
+      alpha: 1.0
   - id: Lasso
     group: sklearn_supervised
     library: sklearn
     task: regression
     estimator: sklearn.linear_model.Lasso
+    default_params:
+      alpha: 0.001
+      max_iter: 2000
   - id: ElasticNet
     group: sklearn_supervised
     library: sklearn
     task: regression
     estimator: sklearn.linear_model.ElasticNet
+    default_params:
+      alpha: 0.001
+      l1_ratio: 0.5
+      max_iter: 2000
   - id: LogisticRegression
     group: sklearn_supervised
     library: sklearn
     task: classification
     estimator: sklearn.linear_model.LogisticRegression
+    default_params:
+      max_iter: 1000
   - id: SVC
     group: sklearn_supervised
     library: sklearn
     task: classification
     estimator: sklearn.svm.SVC
+    default_params:
+      C: 1.0
+      kernel: rbf
   - id: SVR
     group: sklearn_supervised
     library: sklearn
     task: regression
     estimator: sklearn.svm.SVR
+    default_params:
+      C: 1.0
+      kernel: rbf
   - id: DecisionTreeRegressor
     group: sklearn_supervised
     library: sklearn
     task: regression
     estimator: sklearn.tree.DecisionTreeRegressor
+    default_params:
+      max_depth: 8
+      random_state: 42
   - id: DecisionTreeClassifier
     group: sklearn_supervised
     library: sklearn
     task: classification
     estimator: sklearn.tree.DecisionTreeClassifier
+    default_params:
+      max_depth: 8
+      random_state: 42
   - id: RandomForestRegressor
     group: sklearn_supervised
     library: sklearn
     task: regression
     estimator: sklearn.ensemble.RandomForestRegressor
+    default_params:
+      n_estimators: 80
+      max_depth: 10
+      random_state: 42
   - id: RandomForestClassifier
     group: sklearn_supervised
     library: sklearn
     task: classification
     estimator: sklearn.ensemble.RandomForestClassifier
+    default_params:
+      n_estimators: 80
+      max_depth: 10
+      random_state: 42
   - id: GradientBoostingRegressor
     group: sklearn_supervised
     library: sklearn
     task: regression
     estimator: sklearn.ensemble.GradientBoostingRegressor
+    default_params:
+      n_estimators: 80
+      max_depth: 3
+      learning_rate: 0.1
+      random_state: 42
   - id: GradientBoostingClassifier
     group: sklearn_supervised
     library: sklearn
     task: classification
     estimator: sklearn.ensemble.GradientBoostingClassifier
+    default_params:
+      n_estimators: 80
+      max_depth: 3
+      learning_rate: 0.1
+      random_state: 42
   - id: KNeighborsRegressor
     group: sklearn_supervised
     library: sklearn
     task: regression
     estimator: sklearn.neighbors.KNeighborsRegressor
+    default_params:
+      n_neighbors: 5
   - id: KNeighborsClassifier
     group: sklearn_supervised
     library: sklearn
     task: classification
     estimator: sklearn.neighbors.KNeighborsClassifier
+    default_params:
+      n_neighbors: 5
   - id: GaussianNB
     group: sklearn_supervised
     library: sklearn
@@ -84,26 +129,40 @@ models:
     library: sklearn
     task: clustering
     estimator: sklearn.cluster.KMeans
+    default_params:
+      n_clusters: 3
+      n_init: 10
+      random_state: 42
   - id: DBSCAN
     group: sklearn_unsupervised
     library: sklearn
     task: clustering
     estimator: sklearn.cluster.DBSCAN
+    default_params:
+      eps: 0.8
+      min_samples: 5
   - id: PCA
     group: sklearn_unsupervised
     library: sklearn
     task: dimensionality
     estimator: sklearn.decomposition.PCA
+    default_params:
+      n_components: 5
+    note: Unsupervised — reports explained variance ratio (not R²).
   - id: IsolationForest
     group: sklearn_unsupervised
     library: sklearn
     task: anomaly
     estimator: sklearn.ensemble.IsolationForest
+    default_params:
+      contamination: 0.05
+      random_state: 42
   - id: XGBRegressor
     group: boosting_i40
     library: xgboost
     task: regression
     estimator: xgboost.XGBRegressor
+    optional: true
     default_params:
       n_estimators: 80
       max_depth: 4
@@ -114,6 +173,7 @@ models:
     library: xgboost
     task: classification
     estimator: xgboost.XGBClassifier
+    optional: true
     default_params:
       n_estimators: 80
       max_depth: 4
@@ -124,6 +184,7 @@ models:
     library: lightgbm
     task: regression
     estimator: lightgbm.LGBMRegressor
+    optional: true
     default_params:
       n_estimators: 80
       max_depth: 4
@@ -134,6 +195,7 @@ models:
     library: lightgbm
     task: classification
     estimator: lightgbm.LGBMClassifier
+    optional: true
     default_params:
       n_estimators: 80
       max_depth: 4
@@ -144,51 +206,40 @@ models:
     library: sklearn
     task: regression
     estimator: sklearn.ensemble.ExtraTreesRegressor
+    default_params:
+      n_estimators: 80
+      max_depth: 10
+      random_state: 42
   - id: ExtraTreesClassifier
     group: sklearn_supervised
     library: sklearn
     task: classification
     estimator: sklearn.ensemble.ExtraTreesClassifier
+    default_params:
+      n_estimators: 80
+      max_depth: 10
+      random_state: 42
   - id: Prophet
     group: forecasting
     library: prophet
     task: forecast
     estimator: prophet.Prophet
     optional: true
+    note: Needs a datetime/date column + numeric target. Packaged in requirements.txt; soft-fails only if import still fails (Cloud cmdstan flake possible).
   - id: StatsmodelsOLS
     group: forecasting
     library: statsmodels
     task: regression
     estimator: statsmodels.api.OLS
-  - id: OptimizationGurobi
+    optional: true
+    note: Statsmodels OLS — train-fit / test R²·RMSE·MAE. Packaged in requirements.txt; soft-fails only if import still fails.
+  - id: PuLP
     group: optimization_i40
-    library: gurobipy
+    library: pulp
     task: optimization
-    estimator: gurobipy
+    estimator: pulp.LpProblem
     optional: true
-    requires_license: true
-    note: Needs commercial Gurobi license — use stronger host / local license.
-  - id: ORTools
-    group: optimization_i40
-    library: ortools
-    task: optimization
-    estimator: ortools
-    optional: true
-    note: Install ortools on a stronger host for layout/scheduling optimization.
-  - id: PyTorchStub
-    group: deep_learning_enterprise
-    library: torch
-    task: deep_learning
-    estimator: stub
-    optional: true
-    note: Use AWS/GCP/Azure GPU hosts — too heavy for Streamlit Cloud free tier.
-  - id: PySparkStub
-    group: big_data_enterprise
-    library: pyspark
-    task: big_data
-    estimator: stub
-    optional: true
-    note: Needs Spark cluster (Databricks/EMR) — not for Streamlit Community Cloud.
+    note: Student-friendly LP (open-source). Packaged in requirements.txt; no commercial license needed.
 
 viz_libraries:
   - plotly

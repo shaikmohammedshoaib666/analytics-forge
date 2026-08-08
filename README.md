@@ -54,6 +54,8 @@ AI_DEFAULT_PROVIDER=gemini
 They are **too heavy** for Streamlit free cloud and need special infrastructure. They appear in ML Studio as **enterprise stubs** with guidance.
 
 ### I4.0 models now runnable in this app
-RandomForest, ExtraTrees, **IsolationForest**, **XGBoost**, **LightGBM**, GradientBoosting, KMeans, PCA, **Prophet** (if build succeeds), statsmodels OLS.
+RandomForest, ExtraTrees, **IsolationForest**, GradientBoosting, KMeans, DBSCAN, **PCA**, sklearn baselines.
 
-Gurobi / OR-Tools / PyTorch / PySpark = stronger host + license/cluster.
+**Separate packages, shipped in main `requirements.txt`** (so college / Streamlit Cloud installs get them after push + redeploy): **XGBoost**, **LightGBM**, **statsmodels OLS**, **PuLP**, **Prophet**. They are separate libraries — that does **not** mean they cannot run; once `pip install -r requirements.txt` succeeds, they work. Soft-fail remains only if import still fails after install. Prophet usually has wheels but can occasionally flake on Cloud (cmdstan build); redeploy or use holdout regression if that happens.
+
+Gurobi / OR-Tools / PyTorch / PySpark = stronger host + license/cluster (not in requirements).

@@ -24,6 +24,13 @@ _ALIASES = {
     "prophet": "Prophet",
     "kmeans": "KMeans",
     "k_means": "KMeans",
+    "pca": "PCA",
+    "statsmodels_ols": "StatsmodelsOLS",
+    "statsmodels": "StatsmodelsOLS",
+    "ols": "StatsmodelsOLS",
+    "dbscan": "DBSCAN",
+    "pulp": "PuLP",
+    "optimization_pulp": "PuLP",
 }
 
 

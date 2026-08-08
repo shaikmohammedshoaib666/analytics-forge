@@ -69,8 +69,12 @@ def show_ml_metrics(ml_result: Optional[dict]) -> None:
         st.error(ml_result.get("error", "ML run failed"))
         return
     metrics = ml_result.get("metrics") or {}
-    # colorful metric strip
-    fake_kpis = {str(k).upper(): v for k, v in metrics.items() if v is not None}
+    # colorful metric strip (skip nested/list payloads)
+    fake_kpis = {
+        str(k).upper(): v
+        for k, v in metrics.items()
+        if v is not None and not isinstance(v, (list, dict, tuple))
+    }
     if fake_kpis:
         kpi_cards(fake_kpis, max_cards=8)
     st.caption(

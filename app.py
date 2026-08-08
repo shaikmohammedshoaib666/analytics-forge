@@ -114,32 +114,82 @@ def apply_pipeline_to_state(result: dict) -> None:
 def page_upload() -> None:
     page_hero(
         "Upload",
-        "Drop your CSV/Excel or try a sample. Any industry file works — not only sales or PdM.",
+        "Drop a table file (or a ZIP that contains one). Any industry data works — not only sales or PdM.",
         st.session_state.get("domain"),
     )
-    st.write("Load a CSV/Excel file or start with a built-in sample.")
+    st.write(
+        "Supported formats: **CSV, TSV, Excel (.xlsx / .xls), JSON, Parquet**, "
+        "or a **ZIP** that contains one of those. "
+        "ZIP is only a container — after extract we still run the same cleaning pipeline."
+    )
+    st.caption(
+        "Tip for managers: export from Excel / Google Sheets / your ERP as CSV or Excel, "
+        "or zip that file and upload the zip."
+    )
 
     ensure_samples()
     UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
     c1, c2 = st.columns(2)
     with c1:
-        uploaded = st.file_uploader("Upload CSV or Excel", type=["csv", "xlsx", "xls", "tsv"])
+        from core.ingest import ZipNoTabularError, list_zip_tabular_members
+
+        uploaded = st.file_uploader(
+            "Upload data file",
+            type=["csv", "tsv", "txt", "xlsx", "xls", "xlsm", "json", "parquet", "zip"],
+            help=(
+                "CSV / TSV / Excel / JSON / Parquet, or a ZIP containing one of those. "
+                "If the ZIP has several tables, you can pick which one to load."
+            ),
+        )
+        zip_member = None
         if uploaded is not None:
             data = uploaded.getvalue()
             dest = UPLOADS_DIR / uploaded.name
             dest.write_bytes(data)
-            if st.button("Run pipeline on upload", type="primary", key="run_upload"):
-                with st.spinner("Running pipeline…"):
-                    result = run_pipeline(
-                        file_bytes=data,
-                        filename=uploaded.name,
-                        domain_override=st.session_state.domain_override,
-                        persist=True,
+
+            if uploaded.name.lower().endswith(".zip"):
+                try:
+                    members = list_zip_tabular_members(data)
+                except Exception as exc:
+                    st.error(f"Could not read ZIP: {exc}")
+                    members = []
+                if not members:
+                    st.error(
+                        "This ZIP has no tabular files. "
+                        "Include at least one CSV, TSV, Excel (.xlsx/.xls), JSON, or Parquet file."
                     )
-                apply_pipeline_to_state(result)
-                st.success(f"Loaded **{uploaded.name}** · domain `{result['domain']}`")
-                st.dataframe(result["clean_df"].head(20), use_container_width=True)
+                elif len(members) == 1:
+                    zip_member = members[0]
+                    st.caption(f"ZIP contains: `{zip_member}`")
+                else:
+                    zip_member = st.selectbox(
+                        "This ZIP has several tables — pick one",
+                        members,
+                        help="We load one sheet/table into the cleaning pipeline.",
+                    )
+
+            can_run = True
+            if uploaded.name.lower().endswith(".zip") and not zip_member:
+                can_run = False
+
+            if can_run and st.button("Run pipeline on upload", type="primary", key="run_upload"):
+                try:
+                    with st.spinner("Running pipeline…"):
+                        result = run_pipeline(
+                            file_bytes=data,
+                            filename=uploaded.name,
+                            domain_override=st.session_state.domain_override,
+                            persist=True,
+                            zip_member=zip_member,
+                        )
+                    apply_pipeline_to_state(result)
+                    st.success(f"Loaded **{result['source_name']}** · domain `{result['domain']}`")
+                    st.dataframe(result["clean_df"].head(20), use_container_width=True)
+                except ZipNoTabularError as exc:
+                    st.error(str(exc))
+                except Exception as exc:
+                    st.error(f"Could not load file: {exc}")
 
     with c2:
         sample_choice = st.selectbox(
@@ -417,12 +467,14 @@ def page_charts() -> None:
 def page_ml() -> None:
     page_hero(
         "ML Studio",
-        "Pick analyst / I4.0 models and read R², RMSE, MAE, accuracy — colorful metrics strip included.",
+        "Pick a model, read plain-English What / Why / What it does, choose a target, then see R² / RMSE / MAE.",
         st.session_state.get("domain"),
     )
     if st.session_state.clean_df is None:
         st.warning("Upload or load a sample first.")
         return
+
+    from modules.ml_runner import model_guidance
 
     models = list_models(include_soft_fail=True)
     domain = st.session_state.domain
@@ -439,15 +491,39 @@ def page_ml() -> None:
         + (" ★" if m in recommended else ""),
     )
     meta = models[model_id]
-    st.caption(meta.get("note") or f"Library: {meta.get('library')}")
+    guide = model_guidance(model_id)
+    st.info(
+        f"**What:** {guide.get('what') or guide.get('good_for', '')}\n\n"
+        f"**Why:** {guide.get('why', '')}\n\n"
+        f"**What it does:** {guide.get('what_it_does', '')}\n\n"
+        f"**Target to pick:** {guide.get('target', '')}"
+    )
+    if meta.get("note"):
+        st.caption(meta["note"])
+    else:
+        st.caption(f"Library: {meta.get('library')}")
 
     df = st.session_state.clean_df
     cols = list(df.columns)
+    target_label = "Target (the number or label to predict)"
+    if model_id == "Prophet":
+        target_label = "Target = the number to forecast (revenue / sales / RUL)"
+    elif meta.get("task") in {"clustering", "anomaly", "dimensionality", "optimization"}:
+        target_label = "Target (usually leave as auto — not required)"
+
     target = st.selectbox(
-        "Target (optional — auto if blank-ish)",
+        target_label,
         options=["(auto)"] + cols,
+        help=guide.get("target", "Pick the column you want to predict."),
     )
     target_arg = None if target == "(auto)" else target
+
+    if model_id == "Prophet":
+        st.success(
+            "Prophet tip for managers: pick **Target** = revenue, sales, or RUL (the number). "
+            "The **date column is found automatically** — you do not pick it here. "
+            "Why: forecasting needs a timeline plus a number to predict."
+        )
 
     if st.button("Run model", type="primary"):
         with st.spinner("Training…"):
@@ -552,8 +628,16 @@ def page_ai() -> None:
     else:
         st.warning(
             "No cloud AI keys yet — offline answers still work.\n\n"
-            "Add to `.env` (local) or Streamlit Secrets (cloud):\n"
-            "`GEMINI_API_KEY=...` (free tier) and/or `OPENAI_API_KEY=...`"
+            "Add to `.env` (local) or Streamlit Secrets (cloud), then restart:\n\n"
+            "```\n"
+            "GEMINI_API_KEY=your_key_from_Google_AI_Studio\n"
+            "GEMINI_MODEL=gemini-2.0-flash\n"
+            "AI_DEFAULT_PROVIDER=gemini\n"
+            "# optional:\n"
+            "OPENAI_API_KEY=sk-...\n"
+            "OPENAI_MODEL=gpt-4o-mini\n"
+            "```\n\n"
+            "Gemini free tier: https://aistudio.google.com/apikey — never paste keys into chat."
         )
 
     selectable = ["auto"]
@@ -690,16 +774,26 @@ def page_email() -> None:
     if status["configured"]:
         st.success(f"Email ready · SMTP {status['smtp']} · IMAP {status['imap']} · as {status['from']}")
     else:
+        missing = status.get("missing") or ["EMAIL_USER", "EMAIL_PASSWORD"]
         st.warning(
-            "Email not configured yet. Add these to `.env` then restart Streamlit:\n\n"
+            "Email not configured yet — this is expected until you add credentials locally.\n\n"
+            "**Do not paste your real password into chat.** Put secrets in `.env` (local) or "
+            "Streamlit Cloud → Settings → Secrets.\n\n"
+            "Minimum for Gmail send/inbox:\n\n"
+            "```\n"
             "EMAIL_USER=you@gmail.com\n"
-            "EMAIL_PASSWORD=your_app_password\n"
+            "EMAIL_PASSWORD=your_16_char_app_password\n"
             "EMAIL_FROM=you@gmail.com\n"
             "EMAIL_SMTP_HOST=smtp.gmail.com\n"
             "EMAIL_SMTP_PORT=587\n"
             "EMAIL_IMAP_HOST=imap.gmail.com\n"
-            "EMAIL_IMAP_PORT=993\n\n"
-            "Gmail: enable 2FA → create an App Password (not your normal password)."
+            "EMAIL_IMAP_PORT=993\n"
+            "```\n\n"
+            f"Currently missing: {', '.join(missing)}\n\n"
+            "Gmail: enable 2-Step Verification → create an **App Password** "
+            "(Google Account → Security). That App Password is what EMAIL_PASSWORD means — "
+            "not your normal Gmail login password. Aliases `SMTP_USER` / `SMTP_PASSWORD` / "
+            "`SMTP_HOST` also work."
         )
 
     st.subheader("1) Send current report to me / anyone")

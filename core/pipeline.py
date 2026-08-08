@@ -22,19 +22,27 @@ def run_pipeline(
     domain_override: Optional[str] = None,
     persist: bool = True,
     ml_metrics: Optional[dict] = None,
+    zip_member: Optional[str] = None,
 ) -> dict[str, Any]:
     """
     Orchestrate ingest -> clean -> classify -> kpis, optionally save to SQLite.
+
+    zip_member: when source/upload is a ZIP, which tabular file inside to load.
+    ZIP is only a container — cleaning still runs on the loaded DataFrame.
     """
     if raw_df is not None:
         messy = raw_df.copy()
         source_name = filename
     elif file_bytes is not None:
-        messy = load_bytes(file_bytes, filename)
+        messy = load_bytes(file_bytes, filename, zip_member=zip_member)
         source_name = filename
+        if zip_member:
+            source_name = f"{filename} → {Path(zip_member).name}"
     elif source is not None:
-        messy = load_file(source)
+        messy = load_file(source, zip_member=zip_member)
         source_name = Path(source).name
+        if zip_member:
+            source_name = f"{source_name} → {Path(zip_member).name}"
     else:
         raise ValueError("Provide source, raw_df, or file_bytes")
 
