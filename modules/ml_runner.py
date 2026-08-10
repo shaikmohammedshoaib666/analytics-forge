@@ -928,6 +928,26 @@ def _run_prophet(df: pd.DataFrame, target: Optional[str] = None) -> dict[str, An
         "holdout_rows": int(len(merged)),
     }
     preview = fc[["ds", "yhat", "yhat_lower", "yhat_upper"]].tail(20).reset_index(drop=True)
+
+    # Manager-friendly forecast numbers (future rows only)
+    try:
+        last_actual = float(train["y"].iloc[-1])
+        future_only = fc[fc["ds"] > train["ds"].max()]
+        if len(future_only) == 0:
+            future_only = preview
+        end_row = future_only.iloc[-1]
+        mean_yhat = float(future_only["yhat"].mean())
+        end_yhat = float(end_row["yhat"])
+        metrics["last_actual"] = round(last_actual, 4)
+        metrics["forecast_mean"] = round(mean_yhat, 4)
+        metrics["forecast_end"] = round(end_yhat, 4)
+        metrics["forecast_lower"] = round(float(end_row["yhat_lower"]), 4)
+        metrics["forecast_upper"] = round(float(end_row["yhat_upper"]), 4)
+        if last_actual != 0:
+            metrics["pct_change"] = round((end_yhat - last_actual) / abs(last_actual), 4)
+    except Exception:
+        pass
+
     return {
         "ok": True,
         "model_id": "Prophet",

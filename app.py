@@ -25,6 +25,7 @@ from modules.ai_guide import ask_ai
 from modules.charts import build_chart, load_charts_catalog
 from modules.ml_registry import list_models
 from modules.ml_runner import run_model
+from ui.auth_gate import render_user_sidebar, require_login
 from ui.components import (
     download_df_button,
     download_html_pack_button,
@@ -33,6 +34,7 @@ from ui.components import (
 )
 from ui.session import init_session_state, reset_analysis_state
 from ui.theme import inject_css, page_hero
+from modules.manager_insights import build_manager_insight
 
 st.set_page_config(
     page_title="Analytics Forge",
@@ -109,6 +111,101 @@ def apply_pipeline_to_state(result: dict) -> None:
     st.session_state.run_id = result.get("run_id")
     st.session_state.pipeline_done = True
     st.session_state.dashboard_insights = [result["briefing"]]
+    st.session_state.ml_result = None
+    st.session_state.chat_history = []
+
+
+def _current_user_id() -> int | None:
+    user = st.session_state.get("user")
+    if not user:
+        return None
+    try:
+        return int(user["id"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def load_saved_project(run_id: int) -> bool:
+    """Reload a past project from SQLite + saved clean CSV."""
+    from pathlib import Path
+
+    from core.briefing import build_briefing
+    from core.ingest import schema_summary
+
+    row = db.get_run(run_id)
+    if not row:
+        st.error("Project not found.")
+        return False
+    uid = _current_user_id()
+    if uid is not None and row.get("user_id") not in (None, uid):
+        st.error("That project belongs to another account.")
+        return False
+
+    clean_path = row.get("clean_path") or ""
+    if not clean_path or not Path(clean_path).exists():
+        st.error("Saved data file is missing on this machine. Re-upload the CSV.")
+        return False
+
+    clean_df = pd.read_csv(clean_path)
+    domain = row.get("domain") or "generic"
+    classification = {"domain": domain, "confidence": row.get("domain_confidence") or 0.0}
+    kpis = compute_kpis(clean_df, domain=domain)
+    briefing = build_briefing(domain, clean_df.shape, kpis=kpis, classification=classification)
+    schema = schema_summary(clean_df)
+
+    reset_analysis_state()
+    st.session_state.messy_df = clean_df.copy()
+    st.session_state.clean_df = clean_df
+    st.session_state.clean_log = []
+    st.session_state.source_name = row.get("source_name") or row.get("title") or f"run_{run_id}"
+    st.session_state.domain = domain
+    st.session_state.classification = classification
+    st.session_state.kpis = kpis
+    st.session_state.briefing = briefing
+    st.session_state.schema = schema
+    st.session_state.run_id = run_id
+    st.session_state.pipeline_done = True
+    st.session_state.dashboard_insights = [briefing]
+
+    ml = db.get_latest_ml_for_run(run_id)
+    if ml:
+        st.session_state.ml_result = {
+            "ok": True,
+            "model_id": ml.get("model_id"),
+            "task": ml.get("task"),
+            "target": ml.get("target_col"),
+            "metrics": ml.get("metrics") or {},
+            "manager_briefing": ml.get("manager_briefing") or "",
+        }
+
+    if uid is not None:
+        chats = db.list_chat_messages(uid, run_id=run_id, limit=40)
+        st.session_state.chat_history = [
+            {"role": c["role"], "content": c["content"]} for c in chats
+        ]
+    return True
+
+
+def render_recent_projects() -> None:
+    uid = _current_user_id()
+    if uid is None:
+        return
+    st.sidebar.markdown("#### Recent projects")
+    rows = db.list_recent_runs(uid, limit=10)
+    if not rows:
+        st.sidebar.caption("No saved projects yet — upload data to create one.")
+        return
+    for r in rows:
+        label = r.get("title") or r.get("source_name") or f"Run {r['id']}"
+        meta = f"{r.get('domain', '?')} · {r.get('row_count') or 0:,} rows"
+        if st.sidebar.button(
+            f"{label}\n{meta}",
+            key=f"recent_run_{r['id']}",
+            use_container_width=True,
+        ):
+            if load_saved_project(int(r["id"])):
+                st.session_state.page = "Dashboard"
+                st.rerun()
 
 
 def page_upload() -> None:
@@ -182,6 +279,7 @@ def page_upload() -> None:
                             domain_override=st.session_state.domain_override,
                             persist=True,
                             zip_member=zip_member,
+                            user_id=_current_user_id(),
                         )
                     apply_pipeline_to_state(result)
                     st.success(f"Loaded **{result['source_name']}** · domain `{result['domain']}`")
@@ -206,6 +304,7 @@ def page_upload() -> None:
                     source=path,
                     domain_override=st.session_state.domain_override,
                     persist=True,
+                    user_id=_current_user_id(),
                 )
             apply_pipeline_to_state(result)
             st.success(f"Sample loaded · domain `{result['domain']}`")
@@ -528,9 +627,17 @@ def page_ml() -> None:
     if st.button("Run model", type="primary"):
         with st.spinner("Training…"):
             result = run_model(df, model_id=model_id, target=target_arg)
+        if result.get("ok"):
+            briefing = build_manager_insight(result)
+            result["manager_briefing"] = briefing
+            if briefing:
+                st.session_state.dashboard_insights = list(
+                    dict.fromkeys(
+                        (st.session_state.dashboard_insights or []) + [briefing]
+                    )
+                )
         st.session_state.ml_result = result
         if result.get("ok"):
-            # refresh KPIs with ML metrics
             st.session_state.kpis = compute_kpis(
                 df, domain=domain, ml_metrics=result
             )
@@ -541,7 +648,14 @@ def page_ml() -> None:
                     task=result.get("task", ""),
                     target_col=str(result.get("target") or ""),
                     metrics=result.get("metrics") or {},
+                    manager_briefing=result.get("manager_briefing") or "",
                 )
+                if result.get("manager_briefing"):
+                    db.save_insight(
+                        st.session_state.run_id,
+                        f"manager:{model_id}",
+                        result["manager_briefing"],
+                    )
             st.success("Model finished")
         else:
             st.error(result.get("error", "Failed"))
@@ -549,6 +663,18 @@ def page_ml() -> None:
     show_ml_metrics(st.session_state.ml_result)
 
     if st.session_state.ml_result and st.session_state.ml_result.get("ok"):
+        if st.session_state.ml_result.get("model_id") == "Prophet":
+            m = st.session_state.ml_result.get("metrics") or {}
+            nums = st.columns(4)
+            if m.get("last_actual") is not None:
+                nums[0].metric("Last actual", f"{m['last_actual']:,.2f}")
+            if m.get("forecast_end") is not None:
+                nums[1].metric("Forecast end", f"{m['forecast_end']:,.2f}")
+            if m.get("forecast_mean") is not None:
+                nums[2].metric("Avg forecast", f"{m['forecast_mean']:,.2f}")
+            if m.get("pct_change") is not None:
+                nums[3].metric("Change", f"{m['pct_change'] * 100:.1f}%")
+
         preview = st.session_state.ml_result.get("predictions_preview")
         if preview is not None:
             st.subheader("Predictions preview")
@@ -660,6 +786,11 @@ def page_ai() -> None:
         st.session_state.chat_history.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
+        uid = _current_user_id()
+        if uid is not None:
+            db.save_chat_message(
+                uid, "user", prompt, run_id=st.session_state.get("run_id")
+            )
         result = ask_ai(
             prompt,
             domain=st.session_state.domain,
@@ -673,6 +804,10 @@ def page_ai() -> None:
         )
         answer = result.get("answer", "")
         st.session_state.chat_history.append({"role": "assistant", "content": answer})
+        if uid is not None:
+            db.save_chat_message(
+                uid, "assistant", answer, run_id=st.session_state.get("run_id")
+            )
         with st.chat_message("assistant"):
             st.markdown(answer)
             st.caption(f"source: {result.get('source')}")
@@ -880,10 +1015,19 @@ def main() -> None:
     db.init_db()
     ensure_samples()
 
-    st.sidebar.markdown("### ⚒️ Analytics Forge")
-    st.sidebar.caption("Colorful · reusable analytics OS")
-    page = st.sidebar.radio("Navigate", PAGES, index=PAGES.index(st.session_state.page) if st.session_state.page in PAGES else 0)
+    if not require_login():
+        return
+
+    render_user_sidebar()
+    st.sidebar.markdown("### Analytics Forge")
+    st.sidebar.caption("Your data workspace — projects stay after refresh")
+    page = st.sidebar.radio(
+        "Navigate",
+        PAGES,
+        index=PAGES.index(st.session_state.page) if st.session_state.page in PAGES else 0,
+    )
     st.session_state.page = page
+    render_recent_projects()
 
     if st.session_state.pipeline_done:
         st.sidebar.success(
@@ -896,7 +1040,9 @@ def main() -> None:
     try:
         from modules.email_automation import email_configured as _email_ok
 
-        st.sidebar.caption("Email: configured" if _email_ok() else "Email: set .env to enable send/inbox")
+        st.sidebar.caption(
+            "Email: configured" if _email_ok() else "Email: set .env to enable send/inbox"
+        )
     except Exception:
         pass
 

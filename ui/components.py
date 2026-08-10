@@ -81,3 +81,15 @@ def show_ml_metrics(ml_result: Optional[dict]) -> None:
         f"Model: `{ml_result.get('model_id')}` · Task: `{ml_result.get('task')}` · "
         f"Target: `{ml_result.get('target')}`"
     )
+
+    briefing = ml_result.get("manager_briefing")
+    if not briefing:
+        try:
+            from modules.manager_insights import build_manager_insight
+
+            briefing = build_manager_insight(ml_result)
+        except Exception:
+            briefing = ""
+    if briefing:
+        st.markdown("#### For managers")
+        st.info(briefing)

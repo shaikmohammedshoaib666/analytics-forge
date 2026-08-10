@@ -23,6 +23,7 @@ def run_pipeline(
     persist: bool = True,
     ml_metrics: Optional[dict] = None,
     zip_member: Optional[str] = None,
+    user_id: Optional[int] = None,
 ) -> dict[str, Any]:
     """
     Orchestrate ingest -> clean -> classify -> kpis, optionally save to SQLite.
@@ -72,6 +73,8 @@ def run_pipeline(
     }
 
     if persist:
+        from config.settings import CLEAN_DIR
+
         db.init_db()
         run_id = db.create_run(
             domain=domain,
@@ -79,11 +82,16 @@ def run_pipeline(
             row_count=len(clean_df),
             col_count=clean_df.shape[1],
             notes="pipeline",
+            user_id=user_id,
+            title=source_name,
         )
+        clean_path = str(CLEAN_DIR / f"run_{run_id}.csv")
+        clean_df.to_csv(clean_path, index=False)
+        db.update_run_paths(run_id, clean_path=clean_path, title=source_name)
         db.save_dataset(
             run_id,
             name=source_name,
-            path=str(source) if source else "",
+            path=str(source) if source else clean_path,
             n_rows=len(clean_df),
             n_cols=clean_df.shape[1],
             schema=schema,
@@ -92,5 +100,6 @@ def run_pipeline(
         db.save_kpis(run_id, domain, kpis)
         db.save_insight(run_id, "briefing", briefing)
         result["run_id"] = run_id
+        result["clean_path"] = clean_path
 
     return result

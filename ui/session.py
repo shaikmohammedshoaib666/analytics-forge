@@ -22,6 +22,7 @@ DEFAULTS = {
     "dashboard_charts": [],
     "dashboard_insights": [],
     "pipeline_done": False,
+    "user": None,
 }
 
 

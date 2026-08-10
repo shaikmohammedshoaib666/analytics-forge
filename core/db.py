@@ -26,10 +26,23 @@ def connect() -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, ddl: str) -> None:
+    cols = {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    if column not in cols:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
+
+
 def init_db() -> None:
     with connect() as conn:
         conn.executescript(
             """
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                display_name TEXT,
+                created_at TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS runs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 created_at TEXT NOT NULL,
@@ -38,7 +51,10 @@ def init_db() -> None:
                 domain_confidence REAL,
                 row_count INTEGER,
                 col_count INTEGER,
-                notes TEXT
+                notes TEXT,
+                user_id INTEGER,
+                title TEXT,
+                clean_path TEXT
             );
             CREATE TABLE IF NOT EXISTS datasets (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -124,8 +140,52 @@ def init_db() -> None:
                 note TEXT,
                 created_at TEXT
             );
+            CREATE TABLE IF NOT EXISTS chat_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                run_id INTEGER,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES users(id),
+                FOREIGN KEY(run_id) REFERENCES runs(id)
+            );
             """
         )
+        _ensure_column(conn, "runs", "user_id", "user_id INTEGER")
+        _ensure_column(conn, "runs", "title", "title TEXT")
+        _ensure_column(conn, "runs", "clean_path", "clean_path TEXT")
+        _ensure_column(conn, "ml_runs", "manager_briefing", "manager_briefing TEXT")
+
+
+def create_user(email: str, password_hash: str, display_name: str = "") -> int:
+    with connect() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO users (email, password_hash, display_name, created_at)
+            VALUES (?,?,?,?)
+            """,
+            (email, password_hash, display_name or "", _utc()),
+        )
+        return int(cur.lastrowid)
+
+
+def get_user_by_email(email: str) -> Optional[dict[str, Any]]:
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM users WHERE email = ? LIMIT 1",
+            (email,),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def get_user_by_id(user_id: int) -> Optional[dict[str, Any]]:
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM users WHERE id = ? LIMIT 1",
+            (user_id,),
+        ).fetchone()
+        return dict(row) if row else None
 
 
 def create_run(
@@ -135,6 +195,9 @@ def create_run(
     notes: str = "",
     row_count: int = 0,
     col_count: int = 0,
+    user_id: Optional[int] = None,
+    title: str = "",
+    clean_path: str = "",
     **kwargs: Any,
 ) -> int:
     """Create an analysis run. Accepts both positional and keyword styles used by callers."""
@@ -144,16 +207,137 @@ def create_run(
     col_count = int(kwargs.get("col_count", col_count) or 0)
     notes = kwargs.get("notes", notes)
     confidence = float(kwargs.get("confidence", kwargs.get("domain_confidence", confidence)) or 0.0)
+    user_id = kwargs.get("user_id", user_id)
+    title = kwargs.get("title", title) or source_name or "Untitled project"
+    clean_path = kwargs.get("clean_path", clean_path) or ""
     with connect() as conn:
         cur = conn.execute(
             """
             INSERT INTO runs
-            (created_at, source_name, domain, domain_confidence, row_count, col_count, notes)
-            VALUES (?,?,?,?,?,?,?)
+            (created_at, source_name, domain, domain_confidence, row_count, col_count,
+             notes, user_id, title, clean_path)
+            VALUES (?,?,?,?,?,?,?,?,?,?)
             """,
-            (_utc(), source_name, domain, confidence, row_count, col_count, notes),
+            (
+                _utc(),
+                source_name,
+                domain,
+                confidence,
+                row_count,
+                col_count,
+                notes,
+                user_id,
+                title,
+                clean_path,
+            ),
         )
         return int(cur.lastrowid)
+
+
+def update_run_paths(
+    run_id: int,
+    clean_path: str = "",
+    title: str = "",
+) -> None:
+    with connect() as conn:
+        if clean_path:
+            conn.execute(
+                "UPDATE runs SET clean_path = ? WHERE id = ?",
+                (clean_path, run_id),
+            )
+        if title:
+            conn.execute(
+                "UPDATE runs SET title = ? WHERE id = ?",
+                (title, run_id),
+            )
+
+
+def get_run(run_id: int) -> Optional[dict[str, Any]]:
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM runs WHERE id = ? LIMIT 1",
+            (run_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def list_recent_runs(user_id: int, limit: int = 12) -> list[dict[str, Any]]:
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, created_at, source_name, domain, row_count, col_count, title, clean_path
+            FROM runs
+            WHERE user_id = ?
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (user_id, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def save_chat_message(
+    user_id: int,
+    role: str,
+    content: str,
+    run_id: Optional[int] = None,
+) -> int:
+    with connect() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO chat_messages (user_id, run_id, role, content, created_at)
+            VALUES (?,?,?,?,?)
+            """,
+            (user_id, run_id, role, content, _utc()),
+        )
+        return int(cur.lastrowid)
+
+
+def list_chat_messages(
+    user_id: int,
+    run_id: Optional[int] = None,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    with connect() as conn:
+        if run_id is not None:
+            rows = conn.execute(
+                """
+                SELECT * FROM chat_messages
+                WHERE user_id = ? AND run_id = ?
+                ORDER BY id ASC LIMIT ?
+                """,
+                (user_id, run_id, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT * FROM chat_messages
+                WHERE user_id = ?
+                ORDER BY id DESC LIMIT ?
+                """,
+                (user_id, limit),
+            ).fetchall()
+            rows = list(reversed(rows))
+        return [dict(r) for r in rows]
+
+
+def get_latest_ml_for_run(run_id: int) -> Optional[dict[str, Any]]:
+    with connect() as conn:
+        row = conn.execute(
+            """
+            SELECT * FROM ml_runs WHERE run_id = ?
+            ORDER BY id DESC LIMIT 1
+            """,
+            (run_id,),
+        ).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        try:
+            d["metrics"] = json.loads(d.get("metrics") or "{}")
+        except Exception:
+            d["metrics"] = {}
+        return d
 
 
 def save_dataset(
@@ -249,13 +433,16 @@ def save_ml_run(
     metrics: Optional[dict[str, Any]] = None,
     task: str = "",
     target_col: str = "",
+    manager_briefing: str = "",
     **kwargs: Any,
 ) -> int:
+    briefing = manager_briefing or kwargs.get("manager_briefing", "") or ""
     with connect() as conn:
         cur = conn.execute(
             """
-            INSERT INTO ml_runs (run_id, model_id, task, target_col, metrics, created_at)
-            VALUES (?,?,?,?,?,?)
+            INSERT INTO ml_runs
+            (run_id, model_id, task, target_col, metrics, created_at, manager_briefing)
+            VALUES (?,?,?,?,?,?,?)
             """,
             (
                 run_id,
@@ -264,6 +451,7 @@ def save_ml_run(
                 target_col or kwargs.get("target_col", ""),
                 json.dumps(metrics or {}),
                 _utc(),
+                briefing,
             ),
         )
         return int(cur.lastrowid)
