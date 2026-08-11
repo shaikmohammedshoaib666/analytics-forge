@@ -61,6 +61,29 @@ chmod +x deploy/setup-oracle.sh && ./deploy/setup-oracle.sh
 # open http://YOUR_PUBLIC_IP:8501
 ```
 
+## Deploy (Azure for Students — recommended while Oracle is stuck)
+
+Full steps: [deploy/AZURE_STUDENT.md](deploy/AZURE_STUDENT.md)
+
+1. Claim [GitHub Student Pack](https://education.github.com/pack) → Azure credits  
+2. Create Ubuntu 22.04 VM (B2s/B2ms), open NSG port **8501**  
+3. SSH in and run:
+
+```bash
+git clone https://github.com/shaikmohammedshoaib666/analytics-forge.git
+cd analytics-forge
+chmod +x deploy/setup-vm.sh && ./deploy/setup-vm.sh
+# open http://YOUR_PUBLIC_IP:8501
+```
+
+### Updates after Azure is live
+
+On your PC: change code → `git push`. On the VM:
+
+```bash
+cd ~/analytics-forge && git pull && docker compose up -d --build
+```
+
 ## Hosts & data limits
 
 | Host | Good for | Typical upload / data size |
