@@ -23,7 +23,14 @@ DEFAULTS = {
     "dashboard_insights": [],
     "pipeline_done": False,
     "user": None,
+    "quality_report": None,
+    "uploaded_tables": {},
+    "join_log": [],
+    "optuna_result": None,
+    "insight_index": None,
+    "business_insights": [],
 }
+
 
 
 def init_session_state() -> None:
@@ -55,3 +62,9 @@ def reset_analysis_state() -> None:
     # keep dashboard optional — clear on new upload
     st.session_state["dashboard_charts"] = []
     st.session_state["dashboard_insights"] = []
+    st.session_state["quality_report"] = None
+    st.session_state["uploaded_tables"] = {}
+    st.session_state["join_log"] = []
+    st.session_state["optuna_result"] = None
+    st.session_state["insight_index"] = None
+    st.session_state["business_insights"] = []

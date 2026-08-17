@@ -35,6 +35,15 @@ from ui.components import (
 from ui.session import init_session_state, reset_analysis_state
 from ui.theme import inject_css, page_hero
 from modules.manager_insights import build_manager_insight
+from modules.quality_checks import QUALITY_STAGE_COUNT, build_quality_report
+from modules.data_integration import JOIN_TYPES, join_two, join_many, suggest_join_keys, load_tabular_file
+from modules.dwdm_sql import DWDM_CONCEPTS, apply_dwdm_transforms, default_sql_examples, run_sql
+from modules.insights_engine import (
+    InsightIndex,
+    ask_with_index,
+    generate_business_insights,
+)
+from modules.optuna_tuner import tune_rul_model, tune_anomaly_contamination
 
 st.set_page_config(
     page_title="Analytics Forge",
@@ -46,6 +55,8 @@ st.set_page_config(
 PAGES = [
     "Upload",
     "Clean",
+    "Data Integration",
+    "DWDM & SQL",
     "Field",
     "Auto KPIs",
     "Charts",
@@ -359,6 +370,23 @@ def page_clean() -> None:
     log = st.session_state.clean_log or []
     st.dataframe(pd.DataFrame(log), use_container_width=True)
 
+    st.subheader(f"{QUALITY_STAGE_COUNT}-stage industrial quality checks")
+    st.caption("Ported from Analytics Forge v2 / PdM suite (nulls, outliers, drift, association rules, OPC physics).")
+    if st.button("Run 19-stage quality report", type="primary", key="run_quality"):
+        with st.spinner("Running quality suite…"):
+            st.session_state.quality_report = build_quality_report(st.session_state.clean_df)
+        st.success("Quality report ready")
+    if st.session_state.get("quality_report"):
+        checks_df = pd.DataFrame(st.session_state.quality_report["checks"])
+        st.dataframe(checks_df, use_container_width=True)
+        vc = checks_df["status"].value_counts().to_dict()
+        q1, q2, q3, q4 = st.columns(4)
+        q1.metric("PASS", vc.get("PASS", 0))
+        q2.metric("WARN", vc.get("WARN", 0))
+        q3.metric("FAIL", vc.get("FAIL", 0))
+        q4.metric("INFO", vc.get("INFO", 0))
+
+
 
 def page_field() -> None:
     page_hero(
@@ -456,7 +484,41 @@ def page_kpis() -> None:
 
     if st.session_state.domain == "predictive_maintenance" and st.session_state.ml_result:
         st.subheader("PdM ML metrics")
-        show_ml_metrics(st.session_state.ml_result)
+        st.divider()
+    st.subheader("Optuna hyperparameter search")
+    trials = st.slider("Optuna trials", 5, 40, 15, key="optuna_trials")
+    oc1, oc2 = st.columns(2)
+    with oc1:
+        if st.button("Optuna tune regression/RUL", key="optuna_rul"):
+            tgt = target_arg
+            if not tgt:
+                nums = st.session_state.clean_df.select_dtypes(include="number").columns.tolist()
+                tgt = nums[0] if nums else None
+            if not tgt:
+                st.error("Pick a numeric target first.")
+            else:
+                with st.spinner("Optuna…"):
+                    try:
+                        st.session_state.optuna_result = tune_rul_model(
+                            st.session_state.clean_df, target=tgt, n_trials=trials
+                        )
+                        st.success("Optuna complete")
+                    except Exception as exc:
+                        st.error(str(exc))
+    with oc2:
+        if st.button("Optuna tune anomalies", key="optuna_iso"):
+            with st.spinner("Optuna anomalies…"):
+                try:
+                    st.session_state.optuna_result = tune_anomaly_contamination(
+                        st.session_state.clean_df, n_trials=min(12, trials)
+                    )
+                    st.success("Anomaly Optuna complete")
+                except Exception as exc:
+                    st.error(str(exc))
+    if st.session_state.get("optuna_result"):
+        st.json(st.session_state.optuna_result)
+
+    show_ml_metrics(st.session_state.ml_result)
 
     st.markdown(st.session_state.briefing or "")
 
@@ -660,6 +722,40 @@ def page_ml() -> None:
         else:
             st.error(result.get("error", "Failed"))
 
+    st.divider()
+    st.subheader("Optuna hyperparameter search")
+    trials = st.slider("Optuna trials", 5, 40, 15, key="optuna_trials")
+    oc1, oc2 = st.columns(2)
+    with oc1:
+        if st.button("Optuna tune regression/RUL", key="optuna_rul"):
+            tgt = target_arg
+            if not tgt:
+                nums = st.session_state.clean_df.select_dtypes(include="number").columns.tolist()
+                tgt = nums[0] if nums else None
+            if not tgt:
+                st.error("Pick a numeric target first.")
+            else:
+                with st.spinner("Optuna…"):
+                    try:
+                        st.session_state.optuna_result = tune_rul_model(
+                            st.session_state.clean_df, target=tgt, n_trials=trials
+                        )
+                        st.success("Optuna complete")
+                    except Exception as exc:
+                        st.error(str(exc))
+    with oc2:
+        if st.button("Optuna tune anomalies", key="optuna_iso"):
+            with st.spinner("Optuna anomalies…"):
+                try:
+                    st.session_state.optuna_result = tune_anomaly_contamination(
+                        st.session_state.clean_df, n_trials=min(12, trials)
+                    )
+                    st.success("Anomaly Optuna complete")
+                except Exception as exc:
+                    st.error(str(exc))
+    if st.session_state.get("optuna_result"):
+        st.json(st.session_state.optuna_result)
+
     show_ml_metrics(st.session_state.ml_result)
 
     if st.session_state.ml_result and st.session_state.ml_result.get("ok"):
@@ -773,6 +869,14 @@ def page_ai() -> None:
         selectable.append("openai")
     selectable.append("offline")
     provider = st.selectbox("AI provider", selectable, index=0, help="Gemini often has a free tier.")
+    use_llama = st.toggle("Also use LlamaIndex retrieval grounding", value=True)
+    if st.button("Refresh business insights"):
+        st.session_state.business_insights = generate_business_insights(st.session_state.clean_df)
+        idx = InsightIndex()
+        idx.build(st.session_state.clean_df)
+        st.session_state.insight_index = idx
+        for item in st.session_state.business_insights:
+            st.markdown(f"**{item['title']}** (`{item['severity']}`) — {item['message']}")
 
     st.caption(
         "Try: `which model did I use?` · `show kpis` · `which machine will fail?` · `how to reduce machine failure?`"
@@ -791,17 +895,41 @@ def page_ai() -> None:
             db.save_chat_message(
                 uid, "user", prompt, run_id=st.session_state.get("run_id")
             )
-        result = ask_ai(
-            prompt,
-            domain=st.session_state.domain,
-            schema=st.session_state.schema,
-            kpis=st.session_state.kpis,
-            df=st.session_state.clean_df,
-            briefing=st.session_state.briefing or "",
-            history=st.session_state.chat_history[:-1],
-            ml_result=st.session_state.ml_result,
-            provider=provider,
-        )
+        if use_llama:
+            idx = st.session_state.get("insight_index")
+            if idx is None:
+                idx = InsightIndex()
+                idx.build(st.session_state.clean_df)
+                st.session_state.insight_index = idx
+            llama = ask_with_index(prompt, st.session_state.clean_df, idx)
+            result = ask_ai(
+                prompt,
+                domain=st.session_state.domain,
+                schema=st.session_state.schema,
+                kpis=st.session_state.kpis,
+                df=st.session_state.clean_df,
+                briefing=st.session_state.briefing or "",
+                history=st.session_state.chat_history[:-1],
+                ml_result=st.session_state.ml_result,
+                provider=provider,
+            )
+            answer = (
+                f"{result.get('answer', '')}\n\n---\n"
+                f"**LlamaIndex grounding ({llama.get('mode')}):**\n{llama.get('answer', '')}"
+            )
+            result = {**result, "answer": answer, "source": f"{result.get('source')}+llama"}
+        else:
+            result = ask_ai(
+                prompt,
+                domain=st.session_state.domain,
+                schema=st.session_state.schema,
+                kpis=st.session_state.kpis,
+                df=st.session_state.clean_df,
+                briefing=st.session_state.briefing or "",
+                history=st.session_state.chat_history[:-1],
+                ml_result=st.session_state.ml_result,
+                provider=provider,
+            )
         answer = result.get("answer", "")
         st.session_state.chat_history.append({"role": "assistant", "content": answer})
         if uid is not None:
@@ -860,7 +988,41 @@ def page_dashboard() -> None:
 
         if st.session_state.domain == "predictive_maintenance" and st.session_state.ml_result:
             st.subheader("PdM model quality")
-            show_ml_metrics(st.session_state.ml_result)
+            st.divider()
+    st.subheader("Optuna hyperparameter search")
+    trials = st.slider("Optuna trials", 5, 40, 15, key="optuna_trials")
+    oc1, oc2 = st.columns(2)
+    with oc1:
+        if st.button("Optuna tune regression/RUL", key="optuna_rul"):
+            tgt = target_arg
+            if not tgt:
+                nums = st.session_state.clean_df.select_dtypes(include="number").columns.tolist()
+                tgt = nums[0] if nums else None
+            if not tgt:
+                st.error("Pick a numeric target first.")
+            else:
+                with st.spinner("Optuna…"):
+                    try:
+                        st.session_state.optuna_result = tune_rul_model(
+                            st.session_state.clean_df, target=tgt, n_trials=trials
+                        )
+                        st.success("Optuna complete")
+                    except Exception as exc:
+                        st.error(str(exc))
+    with oc2:
+        if st.button("Optuna tune anomalies", key="optuna_iso"):
+            with st.spinner("Optuna anomalies…"):
+                try:
+                    st.session_state.optuna_result = tune_anomaly_contamination(
+                        st.session_state.clean_df, n_trials=min(12, trials)
+                    )
+                    st.success("Anomaly Optuna complete")
+                except Exception as exc:
+                    st.error(str(exc))
+    if st.session_state.get("optuna_result"):
+        st.json(st.session_state.optuna_result)
+
+    show_ml_metrics(st.session_state.ml_result)
 
     st.divider()
     pack = build_html_pack(
@@ -1009,6 +1171,126 @@ def page_email() -> None:
         st.info("Email log empty.")
 
 
+
+def page_data_integration() -> None:
+    page_hero(
+        "Data Integration",
+        "SQL-style joins across 2 or 3+ uploaded tables (INNER / LEFT / RIGHT / OUTER).",
+        st.session_state.get("domain"),
+    )
+    tables = dict(st.session_state.get("uploaded_tables") or {})
+    if st.session_state.clean_df is not None:
+        tables.setdefault("clean_df", st.session_state.clean_df)
+    if st.session_state.messy_df is not None:
+        tables.setdefault("messy_df", st.session_state.messy_df)
+
+    multi = st.file_uploader(
+        "Upload extra tables to join",
+        type=["csv", "tsv", "xlsx", "json"],
+        accept_multiple_files=True,
+        key="join_uploader",
+    )
+    if multi:
+        for uf in multi:
+            try:
+                df = load_tabular_file(uf)
+                tables[Path(uf.name).stem.replace(" ", "_")] = df
+            except Exception as exc:
+                st.error(f"{uf.name}: {exc}")
+        st.session_state.uploaded_tables = tables
+
+    if len(tables) < 2:
+        st.warning("Need at least 2 tables — upload more files or load pipeline data first.")
+        return
+
+    names = list(tables.keys())
+    st.write("Tables:", ", ".join(f"`{n}` ({len(tables[n])} rows)" for n in names))
+    c1, c2, c3 = st.columns(3)
+    left = c1.selectbox("Left", names, key="f_left")
+    right = c2.selectbox("Right", [n for n in names if n != left], key="f_right")
+    how = c3.selectbox("Join type", list(JOIN_TYPES.keys()), key="f_how")
+    keys = st.multiselect(
+        "Join keys",
+        suggest_join_keys(tables[left], tables[right]),
+        default=suggest_join_keys(tables[left], tables[right])[:1],
+        key="f_keys",
+    )
+    if st.button("Run join", type="primary", key="f_join"):
+        try:
+            merged, meta = join_two(tables[left], tables[right], how=how, on=keys or None)
+            st.session_state.clean_df = merged
+            st.session_state.uploaded_tables = {**tables, "joined": merged}
+            st.session_state.join_log = [meta]
+            st.success(f"Joined → {len(merged):,} rows (set as clean_df)")
+            st.json(meta)
+            st.dataframe(merged.head(30), use_container_width=True)
+        except Exception as exc:
+            st.error(str(exc))
+
+    if len(names) >= 3:
+        st.subheader("Chain 3+ tables")
+        r1 = st.selectbox("Join #1 right", [n for n in names if n != left], key="f_r1")
+        r2 = st.selectbox("Join #2 right", [n for n in names if n not in (left, r1)], key="f_r2")
+        how2 = st.selectbox("Join #2 type", list(JOIN_TYPES.keys()), key="f_how2")
+        if st.button("Run join chain", key="f_chain"):
+            try:
+                k1 = suggest_join_keys(tables[left], tables[r1])[:1]
+                k2 = suggest_join_keys(tables[r1], tables[r2])[:1] or list(tables[r2].columns)[:1]
+                merged, logs = join_many(
+                    tables,
+                    [
+                        {"left": left, "right": r1, "how": how, "on": k1},
+                        {"left": "_result", "right": r2, "how": how2, "on": k2},
+                    ],
+                )
+                st.session_state.clean_df = merged
+                st.session_state.uploaded_tables = {**tables, "joined": merged}
+                st.session_state.join_log = logs
+                st.success(f"Chain → {len(merged):,} rows")
+                st.json(logs)
+                st.dataframe(merged.head(30), use_container_width=True)
+            except Exception as exc:
+                st.error(str(exc))
+
+
+def page_dwdm_sql() -> None:
+    page_hero(
+        "DWDM & SQL Lab",
+        "Data warehousing / mining concepts + read-only SQL over registered tables.",
+        st.session_state.get("domain"),
+    )
+    st.dataframe(pd.DataFrame(DWDM_CONCEPTS), use_container_width=True)
+    df = st.session_state.clean_df
+    if df is None:
+        st.warning("Upload or load a sample first.")
+        return
+    nums = df.select_dtypes(include="number").columns.tolist()
+    c1, c2, c3 = st.columns(3)
+    bins = c1.multiselect("Bin columns", nums, default=nums[:1], key="dwdm_bin")
+    smooth = c2.multiselect("Smooth columns", nums, default=nums[:1] if nums else [], key="dwdm_smooth")
+    norm = c3.multiselect("Z-normalize", nums, key="dwdm_norm")
+    if st.button("Apply DWDM transforms", key="dwdm_apply"):
+        out, log = apply_dwdm_transforms(df, bin_cols=bins, smooth_cols=smooth, normalize_cols=norm)
+        st.session_state.clean_df = out
+        st.success("; ".join(log) or "done")
+        st.dataframe(out.head(20), use_container_width=True)
+
+    tables = dict(st.session_state.get("uploaded_tables") or {})
+    tables["clean_df"] = st.session_state.clean_df
+    examples = default_sql_examples(list(tables.keys()))
+    st.subheader("SQL Lab")
+    st.code("\n\n".join(examples), language="sql")
+    q = st.text_area("SQL", value=examples[0], height=120, key="forge_sql")
+    if st.button("Run SQL", type="primary", key="forge_sql_run"):
+        try:
+            result, eng = run_sql(q, tables)
+            st.caption(f"Engine: {eng}")
+            st.dataframe(result, use_container_width=True)
+        except Exception as exc:
+            st.error(str(exc))
+
+
+
 def main() -> None:
     init_session_state()
     inject_css()
@@ -1050,6 +1332,10 @@ def main() -> None:
         page_upload()
     elif page == "Clean":
         page_clean()
+    elif page == "Data Integration":
+        page_data_integration()
+    elif page == "DWDM & SQL":
+        page_dwdm_sql()
     elif page == "Field":
         page_field()
     elif page == "Auto KPIs":
