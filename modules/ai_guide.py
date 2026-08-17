@@ -345,7 +345,7 @@ def _call_gemini(question: str, context: str, history: Optional[list]) -> str:
     api_key = get_gemini_api_key()
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY is missing")
-    model_name = get_gemini_model() or "gemini-2.0-flash"
+    model_name = get_gemini_model() or "gemini-3.6-flash"
 
     try:
         from google import genai

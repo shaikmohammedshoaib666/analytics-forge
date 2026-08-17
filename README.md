@@ -25,7 +25,7 @@ In `.env` (local) or Streamlit Cloud **Secrets**:
 
 ```
 GEMINI_API_KEY=your_gemini_key
-GEMINI_MODEL=gemini-2.0-flash
+GEMINI_MODEL=gemini-3.6-flash
 OPENAI_API_KEY=sk-...
 OPENAI_MODEL=gpt-4o-mini
 AI_DEFAULT_PROVIDER=gemini

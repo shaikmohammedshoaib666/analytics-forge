@@ -853,7 +853,7 @@ def page_ai() -> None:
             "Add to `.env` (local) or Streamlit Secrets (cloud), then restart:\n\n"
             "```\n"
             "GEMINI_API_KEY=your_key_from_Google_AI_Studio\n"
-            "GEMINI_MODEL=gemini-2.0-flash\n"
+            "GEMINI_MODEL=gemini-3.6-flash\n"
             "AI_DEFAULT_PROVIDER=gemini\n"
             "# optional:\n"
             "OPENAI_API_KEY=sk-...\n"

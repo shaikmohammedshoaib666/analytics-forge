@@ -279,7 +279,9 @@ def ask_with_index(
             import google.generativeai as genai
 
             genai.configure(api_key=key)
-            model_name = os.getenv("GEMINI_MODEL", "gemini-flash-latest")
+            from config.settings import get_gemini_model
+
+            model_name = get_gemini_model()
             model = genai.GenerativeModel(model_name)
             prompt = (
                 "You are a predictive maintenance analyst. Use ONLY the context.\n"
