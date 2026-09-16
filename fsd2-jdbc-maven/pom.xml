@@ -7,6 +7,8 @@
     <groupId>org.example</groupId>
     <artifactId>fsd2-jdbc-maven</artifactId>
     <version>1.0-SNAPSHOT</version>
+    <name>fsd2-jdbc-maven</name>
+    <description>FSD2 JDBC lab programs (IntelliJ + Maven)</description>
 
     <properties>
         <maven.compiler.source>21</maven.compiler.source>
@@ -26,4 +28,18 @@
             <version>23.5.0.24.07</version>
         </dependency>
     </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.13.0</version>
+                <configuration>
+                    <source>21</source>
+                    <target>21</target>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
 </project>
