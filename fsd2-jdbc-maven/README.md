@@ -3,6 +3,8 @@
 All old `fsd2-jdbc` IntelliJ programs live here under `src/main/java/Dbconn`.
 Drivers are in `pom.xml` (no manual jar files).
 
+Servlet + JSP + login `doPost` labs are in `../fsd2-web` (Tomcat 9 + SmartTomcat, not this console project).
+
 ## Open in IntelliJ
 1. File → Open → this `fsd2-jdbc-maven` folder
 2. Trust the project
