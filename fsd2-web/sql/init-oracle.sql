@@ -1,0 +1,38 @@
+-- Run inside Oracle Free (Docker): docker exec -i oracle-xe sqlplus -s shoaib/system@//localhost/FREEPDB1 @init-oracle.sql
+BEGIN EXECUTE IMMEDIATE 'DROP TABLE students PURGE'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;
+/
+CREATE TABLE students (
+  id NUMBER PRIMARY KEY,
+  name VARCHAR2(100) NOT NULL,
+  branch VARCHAR2(50),
+  year NUMBER
+);
+INSERT INTO students VALUES (1, 'Shoaib', 'CSE', 3);
+INSERT INTO students VALUES (2, 'Aisha', 'IT', 2);
+INSERT INTO students VALUES (3, 'Ravi', 'ECE', 3);
+COMMIT;
+
+BEGIN EXECUTE IMMEDIATE 'DROP TABLE users PURGE'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;
+/
+CREATE TABLE users (
+  username VARCHAR2(50) PRIMARY KEY,
+  password VARCHAR2(50) NOT NULL,
+  role VARCHAR2(20) DEFAULT 'student'
+);
+INSERT INTO users VALUES ('shoaib', 'system', 'student');
+INSERT INTO users VALUES ('admin', 'admin123', 'admin');
+COMMIT;
+
+BEGIN EXECUTE IMMEDIATE 'DROP TABLE feedback PURGE'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;
+/
+CREATE TABLE feedback (
+  id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  student_name VARCHAR2(100),
+  roll_no VARCHAR2(20),
+  course VARCHAR2(50),
+  feedback_text VARCHAR2(500),
+  submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+COMMIT;
+SELECT 'TABLES_OK' FROM dual;
+EXIT;
