@@ -1,0 +1,26 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="FSD2 SmartTomcat" type="com.poratu.idea.plugins.tomcat">
+    <predefined_log_file enabled="true" id="Tomcat Localhost Log" />
+    <predefined_log_file enabled="true" id="Tomcat Access Log" />
+    <predefined_log_file id="Tomcat Catalina Log" />
+    <predefined_log_file id="Tomcat Manager Log" />
+    <predefined_log_file id="Tomcat Host Manager Log" />
+    <option name="contextPath" value="/fsd2_web" />
+    <option name="docBase" value="$PROJECT_DIR$/src/main/webapp" />
+    <option name="extraClassPath" value="" />
+    <option name="port" value="8080" />
+    <option name="adminPort" value="8005" />
+    <option name="tomcatInfo">
+      <TomcatInfo>
+        <option name="name" value="Apache Tomcat/9.0.120" />
+        <option name="path" value="$USER_HOME$/Tools/apache-tomcat-9.0.120" />
+        <option name="version" value="9.0.120.0" />
+      </TomcatInfo>
+    </option>
+    <option name="vmOptions" value="" />
+    <module name="fsd2-web" />
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>

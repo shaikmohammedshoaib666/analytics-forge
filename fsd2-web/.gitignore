@@ -1,0 +1,7 @@
+target/
+.idea/workspace.xml
+.idea/shelf/
+.smarttomcat/
+*.iml
+.DS_Store
+src/main/webapp/WEB-INF/lib/
